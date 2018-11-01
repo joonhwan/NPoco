@@ -764,8 +764,9 @@ namespace NPoco
                 cmd.Parameters.AddRange(args.OfType<DbParameter>().ToArray());
             }
 
-            // Notify the DB type
-            _dbType.PreExecute(cmd);
+            //TODO Check if calling PreExecute() is needed for command with CommandType.StoredProcedure 
+            //// Notify the DB type
+            //_dbType.PreExecute(cmd);
 
             return cmd;
         }
@@ -950,7 +951,12 @@ namespace NPoco
         {
             return Query(default(T), Sql);
         }
-
+        
+        public IEnumerable<T> Query<T>(string sql, CommandType commandType, params object[] args)
+        {
+            return QueryImp<T>(default(T), null, null, commandType, sql, args);
+        }
+        
         private IEnumerable<T> Read<T>(Type type, object instance, DbDataReader r, DbCommand cmd)
         {
             try
@@ -1117,15 +1123,30 @@ namespace NPoco
 
         internal IEnumerable<T> QueryImp<T>(T instance, Expression<Func<T, IList>> listExpression, Func<T, object[]> idFunc, Sql Sql)
         {
-            var sql = Sql.SQL;
-            var args = Sql.Arguments;
+            return QueryImp<T>(instance, listExpression, idFunc, () =>
+            {
+                var sql = Sql.SQL;
+                var args = Sql.Arguments;
 
-            if (EnableAutoSelect) sql = AutoSelectHelper.AddSelectClause(this, typeof (T), sql);
+                if (EnableAutoSelect) sql = AutoSelectHelper.AddSelectClause(this, typeof(T), sql);
+                return CreateCommand(_sharedConnection, sql, args);
+            });
+        }
+        
+        internal IEnumerable<T> QueryImp<T>(T instance, Expression<Func<T, IList>> listExpression, Func<T, object[]> idFunc, CommandType commandType, string sql, params object[] args)
+        {
+            return QueryImp<T>(instance, listExpression, idFunc, () =>
+            {
+                return CreateCommand(_sharedConnection, commandType, sql, args);
+            });
+        }
 
+        internal IEnumerable<T> QueryImp<T>(T instance, Expression<Func<T, IList>> listExpression, Func<T, object[]> idFunc, Func<DbCommand> commandBuilder)
+        {
             try
             {
                 OpenSharedConnectionInternal();
-                var cmd = CreateCommand(_sharedConnection, sql, args);
+                var cmd = commandBuilder.Invoke();
                 DbDataReader r;
                 try
                 {
@@ -1149,7 +1170,7 @@ namespace NPoco
                 CloseSharedConnectionInternal();
             }
         }
-
+        
         private DbDataReader ExecuteDataReader(DbCommand cmd)
         {
             DbDataReader r;
